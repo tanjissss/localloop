@@ -1,0 +1,59 @@
+name: iOS archive (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+jobs:
+  ios-archive:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v7
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install packages
+        run: npm install --no-audit --no-fund
+      - name: Build web assets
+        run: npm run build
+      - name: Create Capacitor iOS project
+        run: npx cap add ios --packagemanager SPM
+      - name: Sync native plugins and web assets
+        run: npx cap sync ios
+      - name: Add iOS privacy manifest
+        run: npm run cap:privacy
+      - name: Create unsigned Xcode archive
+        run: |
+          mkdir -p artifacts
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$GITHUB_WORKSPACE/artifacts/LocalLoop.xcarchive" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY='' \
+            archive
+      - name: Package unsigned IPA for TrollStore
+        run: |
+          mkdir -p artifacts/ipa/Payload
+          cp -R artifacts/LocalLoop.xcarchive/Products/Applications/App.app artifacts/ipa/Payload/
+          ditto -c -k --sequesterRsrc --keepParent artifacts/ipa/Payload artifacts/LocalLoop-unsigned.ipa
+          ditto -c -k --sequesterRsrc --keepParent artifacts/LocalLoop.xcarchive artifacts/LocalLoop.xcarchive.zip
+      - name: Upload iOS files
+        uses: actions/upload-artifact@v5
+        with:
+          name: LocalLoop-iOS
+          path: |
+            artifacts/LocalLoop-unsigned.ipa
+            artifacts/LocalLoop.xcarchive.zip
+          retention-days: 14
+
+
